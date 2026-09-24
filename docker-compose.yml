@@ -1,0 +1,24 @@
+services:
+  analysis:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    cpus: 1.0
+    mem_limit: 2g
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: Rscript scripts/manipulation-viz-script.R
+
+  rstudio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    cpus: 1.5
+    mem_limit: 2.5g
+    volumes:
+      - .:/home/rstudio/fifaaccuracy
+    ports:
+      - "8787:8787"
+    environment:
+      - PASSWORD=fifa
