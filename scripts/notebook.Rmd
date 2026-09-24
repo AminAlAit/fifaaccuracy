@@ -1,0 +1,812 @@
+## 1. Packages & Data Import
+```{r message = FALSE}
+install.packages("devtools")
+devtools::install_github('ellisp/ggflags')
+devtools::install_github('rensa/ggflags')
+remotes::install_github('rensa/ggflags')
+install.packages("gghighlight")
+
+library(directlabels)
+library(RColorBrewer)
+library(countrycode)
+library(gghighlight)
+library(wordcloud2) 
+library(hrbrthemes)
+library(SnowballC)
+library(wordcloud)
+library(lubridate)
+library(tidyverse)
+library(gganimate)
+library(babynames)
+library(htmltools)
+library(rworldmap)
+library(emojifont)
+library(ggthemes)
+library(quantmod)
+library(graphics)
+library(devtools)
+library(ggplot2)
+library(cowplot)
+library(usethis)
+library(ggflags)
+library(lattice)
+library(ggrepel)
+library(viridis)
+library(ggrepel)
+library(janitor)
+library(scales)
+library(ggtext) 
+library(ggpubr)
+library(gifski)
+library(ggmap)
+library(dplyr)
+library(readr)
+library(renv)
+library(grid)
+library(png) 
+library(tm)
+
+remove.packages("ggimage")
+devtools::install_github('GuangchuangYu/ggimage')
+library(ggimage)
+
+find_data_file <- function(filename) {
+  candidates <- c(
+    file.path("data", filename),
+    file.path("..", "data", filename),
+    file.path(".", filename),
+    file.path("~", "workspace", filename)
+  )
+  for (cand in candidates) {
+    if (file.exists(cand)) return(cand)
+  }
+  stop(paste("Data file not found:", filename))
+}
+
+table <- read_csv(find_data_file("fifatable.csv"), col_types = cols(...1 = col_skip()), show_col_types = FALSE)
+```
+
+## 2. Our Data
+```{r message = FALSE}
+names(table)
+glimpse(table)
+head(table)
+```
+
+## 3.1 Data Prep
+```{r results='hide', warning=FALSE, message=FALSE}
+## Data Prep
+table <- table %>% 
+  mutate(difference = max_potential - overall)
+
+scatter_df <- table %>%
+	group_by(SoFifaID) %>%
+	summarise(prime  = max(overall, na.rm = TRUE), 
+	          bottom = min(overall, na.rm = TRUE),
+	          pot19  = max(max_potential, na.rm = TRUE)) %>%
+	mutate(passed    = case_when(
+	                  prime >= pot19 ~ TRUE, 
+	                  prime <  pot19 ~ FALSE)
+	       ) 
+
+## To add more Columns and limit duplicated players
+extra_cols <- table %>%
+	# filter by age
+  filter(age == 19) %>%
+  # and filtering by SoFifaID, to limit duplicated players as much as possible
+  inner_join((table %>% distinct(SoFifaID)), by = c("SoFifaID" = "SoFifaID")) %>%
+	select(SoFifaID, sofifa_page, pos_in_list, short_name, overall, difference, FifaIndex, nationality, club)
+
+scatter_df <- inner_join(scatter_df, extra_cols, by = c("SoFifaID" = "SoFifaID")) %>%
+  distinct()
+
+table1 <- scatter_df %>%
+	select(SoFifaID, sofifa_page, pos_in_list, short_name, prime, difference, bottom) %>%
+	rename(diff19 = difference) %>%
+	inner_join(table, by = c("SoFifaID" = "SoFifaID")) %>%
+	select(SoFifaID, sofifa_page.x, pos_in_list.x, FifaIndex, short_name.x, age, Fifa_year, 
+	       overall, prime, bottom, max_potential, diff19, nationality, club) %>%
+  rename(SoFifaID = SoFifaID, sofifa_page = sofifa_page.x, pos_in_list = pos_in_list.x, short_name = short_name.x) %>%
+	mutate(pass_pot           = ifelse(prime >= max_potential  , TRUE         , FALSE),  
+	       pass_pot_names     = ifelse(pass_pot                , short_name   , NA),
+         breakthrough_pot   = ifelse(overall >= max_potential, max_potential, NA),
+         # breathrough_pot_1 should hold only the first value of the breakthrough, while breakthrough_pot has all others
+		     breakthrough_pot_1 = ifelse(overall >= max_potential, max_potential, NA),
+		     # for plot: Age Distribution of Pot Achievers
+		     pass_pot_num       = ifelse(is.na(overall), 0, (ifelse(overall < max_potential, 0, 1))),
+		     # this will be filled later in a for loop in section: 
+		     pass_pot_num_1     = 0)
+```
+## 3.2 Housekeeping
+```{r echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+## Housekeeping code
+record("renv@0.14.0")
+restore(packages <- "renv")
+year_labs        <- c("2007", "2008", "2009", "2010", "2011", "2012", "2013", "2014", "2015", "2016")
+options(repr.plot.width = 5)
+range_max_pot    <- range(table$max_potential, na.rm = TRUE)
+range_1          <- as.integer(((range_max_pot[2] - range_max_pot[1])/3) + range_max_pot[1])
+range_2          <- as.integer(((range_max_pot[2] - range_max_pot[1])/3) + range_1)
+pot_brackets     <- c(
+                      paste("[", range_max_pot[1], ", ", range_1,          "[", sep = ""),
+                      paste("[", range_1,          ", ", range_2,          "[", sep = ""),
+                      paste("[", range_2,          ", ", range_max_pot[2], "]", sep = ""))
+```
+
+## 4.1 How Many?
+```{r message=FALSE, fig.align='center', fig.height=10, fig.width=12, warning=FALSE}
+## Data Preds
+# Measuring accuracy in predictions
+acc_preds <- scatter_df %>%
+	mutate(passed = case_when(
+	                  prime >= pot19 ~ 1, 
+	                  prime <  pot19 ~ 0)
+	       )
+
+## Housekeeping code
+total_overachivers <- acc_preds %>% drop_na(passed) %>% filter(passed == 1) %>% nrow()
+total              <- acc_preds %>% drop_na(short_name, SoFifaID, passed) %>% nrow()
+players_pass     = sum(acc_preds$passed)
+players_not_pass = nrow(acc_preds) - sum(acc_preds$passed)
+
+## Data prep for first pie chart
+pie_1 <- data.frame(
+  group = c("Passed", "Did Not Pass"),
+  value = c(players_pass, players_not_pass))
+# Compute the position of pie category labels
+pie_1 <- pie_1 %>% 
+  arrange(desc(group)) %>%
+  mutate(prop = value / sum(pie_1$value) * 100,
+         ypos = cumsum(prop) - 0.5 * prop)
+
+# Data prep for 1st and 2nd bar charts
+pass_pot_pass_plot <- table1 %>%
+  mutate(passed = case_when(
+            prime >= max_potential ~ "Passed", 
+	          prime <  max_potential ~ "Did not pass"),
+         max_pot_category = case_when(
+            max_potential >= range_max_pot[1] & max_potential < range_1 
+            ~ paste("[", range_max_pot[1], ", ", range_1, "[", sep = ""), 
+	          max_potential >= range_1 & max_potential < range_2          
+            ~ paste("[", range_1, ", ", range_2, "[", sep = ""), 
+	          max_potential >= range_2 & max_potential < range_max_pot[2] 
+            ~ paste("[", range_2, ", ", range_max_pot[2], "]", sep = ""))) %>%
+  select(passed, max_pot_category) %>%
+  group_by(passed, max_pot_category) %>%
+  filter(!is.na(max_pot_category)) %>%
+  count()
+  # Add these extra lines to turn the potential brackets into columns
+  #spread(passed, n, fill = 0)
+
+## Viz Part
+# Plotting first pie chart
+plot_1 <- ggplot(pie_1, aes(x = "", y = prop, fill = group)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +
+  coord_polar("y", start = 0) +
+  theme_void() + 
+  theme(legend.position = "none") +
+  geom_text(aes(
+    y = ypos, 
+    label = c(
+      paste(round(100 * (players_pass/nrow(acc_preds)),     2), "%\nPassed",       sep = ""), 
+      paste(round(100 * (players_not_pass/nrow(acc_preds)), 2), "%\nDid not pass", sep = ""))), 
+    #size = 5,
+    color = "white") +
+  scale_fill_brewer(palette = "Set1") +
+  labs(
+    title    = paste(nrow(acc_preds), " players.", sep = ""),
+    #subtitle = paste("360 players of age 19, from each FIFA 07 to FIFA 21. 5,040 players in total." , sep = "")
+    )
+
+# Plotting second bar chart
+plot_2 <- ggplot(pass_pot_pass_plot, aes(fill = max_pot_category, y = n, x = passed)) + 
+  geom_bar(position = "dodge", stat = "identity") +
+  scale_fill_brewer(palette = "Set1") +
+  labs(
+    title    = paste(players_not_pass, " players did not pass vs ", players_pass, " that did.", sep = ""),
+    #subtitle = paste("360 players of age 19, from each FIFA 07 to FIFA 21. 5,040 players in total." , sep = ""),
+    x        = "",
+    y        = "",
+    fill     = "Potential Brackets") +
+  theme_ipsum()
+
+# Plotting third bar chart
+plot_3 <- ggplot(pass_pot_pass_plot, aes(fill = passed, y = n, x = max_pot_category)) + 
+  geom_bar(position = "dodge", stat = "identity") +
+  scale_fill_brewer(palette = "Set1") +
+  labs(
+    title    = paste(players_not_pass, " players did not pass vs ", players_pass, " that did.", sep = ""),
+    #subtitle = paste("360 players of age 19, from each FIFA 07 to FIFA 21. 5,040 players in total." , sep = ""),
+    x        = "",
+    y        = "",
+    fill     = "") +
+  theme_ipsum()
+
+## Putting all plots in one figure
+ggarrange(plot_1, plot_2, ncol = 1, nrow = 2, labels = c("", ""))
+ggarrange(plot_1, plot_2, ncol = 2, nrow = 1, labels = c("", ""))
+ggarrange(plot_1, plot_3, ncol = 1, nrow = 1, labels = c("", ""))
+ggarrange(plot_1, plot_3, ncol = 2, nrow = 1, labels = c("", ""))
+
+```
+## 4.2 How Accurate Was FIFA Game Every Year?
+```{r}
+## Data Prep
+cbind.fill <- function(...){
+    nm <- list(...) 
+    nm <- lapply(nm, as.matrix)
+    n <- max(sapply(nm, nrow)) 
+    do.call(cbind, lapply(nm, function (x) 
+        rbind(x, matrix(, n-nrow(x), ncol(x))))) 
+}
+
+temp <- scatter_df %>%
+  mutate(max_pot_category = case_when(
+            pot19 >= range_max_pot[1] & pot19 < range_1 
+            ~ paste("[", range_max_pot[1], ", ", range_1, "[", sep = ""), 
+	          pot19 >= range_1 & pot19 < range_2          
+            ~ paste("[", range_1, ", ", range_2, "[", sep = ""), 
+	          pot19 >= range_2 & pot19 < range_max_pot[2] 
+            ~ paste("[", range_2, ", ", range_max_pot[2], "]", sep = ""))) %>%
+  select(passed, max_pot_category, FifaIndex, short_name) %>%
+  filter(!is.na(max_pot_category)) %>%
+  group_by(FifaIndex, passed) %>%
+  count(max_pot_category) 
+
+as.data.frame(cbind.fill(
+  unique(table$FifaIndex),
+  temp %>% filter(passed == FALSE, max_pot_category == "[64, 74[") 
+  %>% ungroup() %>% select(n, -FifaIndex,  -max_pot_category, -passed) %>% rename(np_bot = n), 
+  temp %>% filter(passed == FALSE, max_pot_category == "[74, 84[") 
+  %>% ungroup() %>% select(n, -FifaIndex,  -max_pot_category, -passed) %>% rename(np_mid = n), 
+  temp %>% filter(passed == FALSE, max_pot_category == "[84, 94]") 
+  %>% ungroup() %>% select(n, -FifaIndex,  -max_pot_category, -passed) %>% rename(np_top = n), 
+  temp %>% filter(passed == TRUE, max_pot_category == "[64, 74[") 
+  %>% ungroup() %>% select(n, -FifaIndex,  -max_pot_category, -passed) %>% rename(p_bot = n), 
+  temp %>% filter(passed == TRUE, max_pot_category == "[74, 84[") 
+  %>% ungroup() %>% select(n, -FifaIndex,  -max_pot_category, -passed) %>% rename(p_mid = n), 
+  temp %>% filter(passed == TRUE, max_pot_category == "[84, 94]") 
+  %>% ungroup() %>% select(n, -FifaIndex,  -max_pot_category, -passed) %>% rename(p_top = n),
+  fill = NA)) %>% select(-V8) %>%
+  mutate(accuracy_bot = round((p_bot / (p_bot + np_bot)) * 100),
+         accuracy_mid = round((p_mid / (p_mid + np_mid)) * 100),
+         accuracy_top = round((p_top / (p_top + np_top)) * 100),
+         total = p_top + p_mid + p_bot + np_top + np_mid + np_bot) %>%
+  rename(fifa_id = V1) %>%
+  select(fifa_id, accuracy_bot, accuracy_mid, accuracy_top) %>%
+  gather(key = "accuracy_bracket", value = "count", -fifa_id) %>%
+  
+  ## Vizualization Part
+  ggplot(aes(x = fifa_id, y = count)) + 
+  geom_line(aes(color = accuracy_bracket)) +
+  scale_color_manual(values = c("darkred", "steelblue", "darkgreen"), labels = c("[68, 74[", "[74, 84[", "[84, 94]")) +
+  geom_point(aes(x  = fifa_id, y = count, color = accuracy_bracket)) +
+  theme_bw() +
+  labs(
+    x        = "Years",
+    y        = "Percent %",
+    title    = "Is FIFA's Accuracy Consistent?",
+    subtitle = "Percent of accurate predictions depending on the potential brackets of the players.", 
+    color    = "Potential Brackets") +
+  guides(linetype = FALSE)
+```
+## 5. Frequency Distribution
+```{r message=FALSE, fig.align='center', fig.height=10, fig.width=12, warning=FALSE}
+acc_preds %>%
+	mutate(max_pot_category = case_when(
+            pot19 >= range_max_pot[1] & pot19 < range_1 ~ paste("[", range_max_pot[1], ", ", range_1, "[", sep = ""), 
+	          pot19 >= range_1 & pot19 < range_2 ~ paste("[", range_1, ", ", range_2, "[", sep = ""), 
+	          pot19 >= range_2 & pot19 < range_max_pot[2] ~ paste("[", range_2, ", ", range_max_pot[2], "]", sep = ""))) %>%
+  drop_na(max_pot_category) %>%
+  
+  ggplot(aes(difference, fill = as.factor(FifaIndex))) + 
+  #ggplot(aes(difference, fill = as.factor(max_pot_category))) + 
+	
+  geom_histogram(binwidth = 1, bins = length(unique(acc_preds$difference, na.rm = TRUE))) +
+	labs(
+		title    = "Frequency Distribution of Overall Difference",
+		subtitle = "(difference = max potential - overall)",
+		x        = "difference",
+		y        = "") +
+  
+  scale_fill_viridis(discrete = TRUE, name = "Year", labels = year_labs) +
+  #scale_fill_viridis(discrete = TRUE, name = "Potential Brackets", labels = pot_brackets) +
+	
+  scale_x_continuous(breaks = round(seq(min(scatter_df$difference), max(scatter_df$difference), by = 1), 1)) +
+	theme_classic()
+```
+
+## 5.1 Scatterplot 1
+```{r message = FALSE, fig.align='center', fig.height=7, fig.width=14, warning=FALSE}
+ggplot(scatter_df, aes(x = overall, y = difference)) + 
+	geom_point(aes(shape = passed, size = prime, na.rm = TRUE, color = as.factor(FifaIndex)), alpha = 0.6) +
+	#geom_point(aes(color = 'steelblue', size = PrimeOverall), alpha = 0.5) + #overall is overall at age 19 
+	#geom_point(aes(color = 'orange',    size = pot19),   alpha = 0.5) + 
+	#scale_color_manual(values = c("#00AFBB", "#E7B800", "#FC4E07")) +
+	#scale_color_discrete(name = "Overall", labels = c("19 y/o Potential", "Prime Overall")) +
+	scale_size(range = c(0.5, 9), name = "Prime Overall") +
+  # c(45, 43)
+	scale_shape_manual(values = c(4, 19), name = "Reached/Passed Fifa Potential", labels = c("Did not pass", "Passed", "NA")) +
+	#geom_text_repel(aes(label = short_name, size = 67)) +
+	theme(axis.title.y = element_text(size = 2)) +
+	scale_x_continuous(breaks = round(seq(min(scatter_df$overall),    max(scatter_df$overall),    by = 1), 1)) +
+	scale_y_continuous(breaks = round(seq(min(scatter_df$difference), max(scatter_df$difference), by = 1), 1)) +
+	labs(
+		title    = "How accurate are Fifa's potential predictions?",
+		x        = "Overall at age 19",
+		y        = "Difference*",
+		caption  = "How far from the overall, at age 19, is the potential put by Fifa: difference = max potential - overall*") +
+	scale_color_discrete(name = "Year", labels = year_labs) +
+	#scale_shape_discrete(name = "Passed Fifa Potential", labels = c("Did not pass", "Passed", "NA")) +
+	#scale_fill_discrete(name = "Passed Fifa Potential", labels = c("Did not pass", "Passed")) +
+	theme_bw()
+```
+## 5.2 Scatterplot 2
+```{r}
+# anim_scatter <- 
+acc_preds %>%
+  drop_na(FifaIndex, passed) %>%
+  select(-passed) %>%
+  mutate(year = case_when(
+    FifaIndex <  10 ~ paste("200", FifaIndex, sep = ""),
+    FifaIndex >= 10 ~ paste("20",  FifaIndex, sep = "")),
+    passed = case_when(
+            prime >= pot19 ~ "Passed", 
+	          prime <  pot19 ~ "Did not pass")) %>%
+  select(-FifaIndex) %>%
+  ggplot(aes(x = overall, y = pot19, size = 1.5)) +
+  geom_point(aes(color = as.factor(passed))) +
+  ylim(range_max_pot[1], range_max_pot[2]) +
+  labs(
+    title    = "The Players, by year: {closest_state}",
+    x = "Overall",
+    y = "Potential", 
+    color = "") +
+  scale_color_viridis(discrete = TRUE) + 
+  theme_bw() +
+  scale_size(guide = "none") 
+  transition_reveal(year) +
+  transition_states(year, transition_length = 3, state_length = 0.5) +
+  view_follow(fixed_x = TRUE) 
+
+# GIF Export
+animate(anim_scatter, duration = 30, fps = 24,  width = 600, height = 700, renderer = gifski_renderer("PlayersScatterplotAnim.gif"))
+```
+## 5.3 Scatterplot 3: animation: 3m yhero
+```{r}
+
+```
+## 5.4 Countries producing the most overachivers - Barchart
+```{r}
+acc_preds %>%
+  filter(passed == 1) %>%
+  drop_na(nationality) %>%
+  rename(country = nationality) %>%
+  group_by(country) %>%
+  count() %>%
+  mutate(code = if(country == "Northern Ireland" | country == "England" | country == "Scotland" | country == "Wales") {"gb"} 
+                else {tolower(countrycode(country, origin = 'country.name', destination = 'iso2c'))},
+         country = country) %>%
+  filter(n >= 4) %>%
+  ggplot(aes(x = reorder(country, n), y = n, country = as.factor(tolower(country)))) +
+  geom_bar(stat = "identity", aes(fill = n)) +
+  geom_flag(y = -1, aes(country = as.factor(code))) +
+  #scale_y_continuous(expand = c(0.1, 1)) +
+  labs(
+    x        = "",
+    y        = "",
+    title    = "Natioanlities of our overachievers",
+    fill     = "",
+    subtitle = paste(total_overachivers, " out of ", total, 
+ " players reached their potential. This plot takes a look at the countries with the highest number of potential achievers.",
+ sep = "")) +
+  geom_text(aes(label = n, alpha = 0.9), size = 3.5, position = position_dodge(width = 0), hjust = -0.1, vjust = 0.5) +
+  #scale_fill_viridis(discrete = TRUE) +
+  scale_fill_gradient2(low = 'white', high = '#005EFF') +
+  scale_country() +
+  #scale_size(range = c(0, 15)) +
+  theme_bw() +
+  theme(legend.title = element_blank(), legend.position = "none") +
+  coord_flip()
+```
+## 5.5.1 Countries producing the most overachivers - Animation
+```{r}
+anim <- acc_preds %>%
+  filter(passed == 1) %>%
+  drop_na(nationality) %>%
+  group_by(nationality, FifaIndex) %>%
+  count() %>%
+  mutate(year = case_when(
+    FifaIndex <  10 ~ paste("200", FifaIndex, sep = ""),
+    FifaIndex >= 10 ~ paste("20",  FifaIndex, sep = ""))) %>%
+  ungroup() %>%
+  select(-FifaIndex) %>%
+  rename(country = nationality) %>%
+  group_by(year) %>%
+  # The * 1 makes it possible to have non-integer ranks while sliding
+  mutate(rank = as.integer(rank(-n))) %>%
+  group_by(country) %>% 
+  filter(rank <= 10) %>%
+  ungroup() %>%
+  
+  ## Visualization Part
+  ggplot(aes(x = rank, group = country, fill = as.factor(country))) +
+  geom_tile(aes(y = n / 2, height = n, width = 0.9), alpha = 0.8, color = NA) +
+  geom_text(aes(y = 0, label  = paste(country, " ", sep = "")), vjust = 0.2, hjust = 1) +
+  geom_text(aes(y = n, label  = n, hjust = 0)) +
+  coord_flip(clip = "off", expand = FALSE) +
+  scale_y_continuous(labels = scales::comma) +
+  scale_x_reverse() +
+  scale_fill_viridis(discrete = TRUE) +
+  #guides(color = FALSE, fill = FALSE, scale = "none") +
+  theme_bw() +
+  theme(axis.line          = element_blank(),
+        axis.text.x        = element_blank(),
+        axis.text.y        = element_blank(),
+        axis.ticks         = element_blank(),
+        axis.title.x       = element_blank(),
+        axis.title.y       = element_blank(),
+        legend.position    = "none",
+        panel.background   = element_blank(),
+        panel.border       = element_blank(),
+        panel.grid.major   = element_blank(),
+        panel.grid.minor   = element_blank(),
+        panel.grid.major.x = element_line(size = .1, color = "grey"),
+        panel.grid.minor.x = element_line(size = .1, color = "grey"),
+        plot.title         = element_text(size = 25, face  = "bold",   color = "grey"),
+        plot.subtitle      = element_text(size = 18, face  = "italic", color = "grey"),
+        #plot.caption       = element_text(size = 8,hjust = 0.5, face = "italic", color = "grey"),
+        plot.background    = element_blank(),
+        plot.margin        = margin(2, 2, 2, 4, "cm")) +
+
+  ## Animation Rendering 
+  transition_states(year, transition_length = 4, state_length = 2) +
+  view_follow(fixed_x = TRUE)  +
+  labs(
+    title    = "Natioanlities Of Our Overachievers by Year: {closest_state}",
+    #caption  = "GDP in Billions USD | Data Source: World Bank Data",
+    subtitle = paste(total_overachivers, " out of ", total, 
+                     " players reached the potential put by FIFA. This plot takes a look at the countries with
+                     the highest number of potential achievers.", sep = "")) 
+  ## GIF Export
+animate(anim, duration = 200, fps = 20,  width = 1200, height = 1000, renderer = gifski_renderer("CountriesBarChartAnim.gif"))
+```
+## 6 World Map
+```{r message = FALSE, fig.align='center', fig.height=7, fig.width=14, fig, warning=FALSE}
+# make png of the map
+png(file = "labWorldMap.png", width = 1024, height = 768)
+par(mai = c(0, 0, 0.2, 0))
+
+acc_preds %>%
+  filter(passed == 1) %>%
+  drop_na(nationality) %>%
+  rename(country = nationality) %>%
+  group_by(country) %>%
+  count() %>%
+  mutate(code = if(country == "Northern Ireland" | country == "England" | country == "Scotland" | country == "Wales") {"GB"} 
+                else {countrycode(country, origin = 'country.name', destination = 'iso2c')}) %>%
+  ungroup() %>%
+  select(-country) %>%
+  joinCountryData2Map(joinCode = "ISO2", nameJoinColumn = "code") %>%
+  mapCountryData(
+    nameColumnToPlot  = "n",
+    mapTitle          = "",
+    catMethod         = "logFixedWidth", 
+    colourPalette     = "heat",
+    #nameColumnToHatch = "n",
+    oceanCol          = "lightblue",
+    missingCountryCol = "white",
+    addLegend         = FALSE,
+    lwd               = 1)
+```
+
+## 7 Age Distribution of Potential Achievers
+```{r}
+## Data Prep
+# Creating pass_pot_num_1
+for (row in 1:nrow(table1)) {
+  if(table1[row, "age"] == 19){
+    one_done = FALSE
+  }
+  if(table1[row, "pass_pot_num"] == 0) # [0] => 0
+    table1[row, "pass_pot_num_1"] <- 0
+  
+  else if(table1[row, "pass_pot_num"] == 1 & table1[row - 1, "pass_pot_num"] == 0 & !one_done){ # [0][1] => 1
+    table1[row, "pass_pot_num_1"] <- 1
+    one_done = TRUE
+  }
+  else if(table1[row, "pass_pot_num"] == 1 & table1[row - 1, "pass_pot_num"] == 1) # [1][1] => 0
+    table1[row, "pass_pot_num_1"] <- 0
+}
+
+# Editing breakthrough_pot_1
+table1 <- table1 %>%
+  select(-breakthrough_pot_1) %>%
+  mutate(breakthrough_pot_1 = case_when(
+    pass_pot_num_1 == 1 ~ max_potential,
+    pass_pot_num_1 == 0 ~ 0
+  ))
+
+age_pot_pass_plot <- table1 %>%
+  mutate(max_pot_category = case_when(
+            max_potential >= range_max_pot[1] & max_potential < range_1 ~ paste("[", range_max_pot[1], ", ", range_1,          "[", sep = ""), 
+	          max_potential >= range_1 & max_potential < range_2          ~ paste("[", range_1,          ", ", range_2,          "[", sep = ""), 
+	          max_potential >= range_2 & max_potential < range_max_pot[2] ~ paste("[", range_2,          ", ", range_max_pot[2], "]", sep = ""))) %>%
+  group_by(age, max_pot_category) %>%
+	summarise(pass_pot_num_sum_1 = sum(pass_pot_num_1)) %>%
+  filter(!is.na(max_pot_category)) 
+  # Add these extra lines to turn the potential brackets into columns
+  #count(age, pass_pot_num_sum_1, max_pot_category) %>%
+  #spread(max_pot_category, pass_pot_num_sum_1, fill = 0) %>%
+  #select(-n)
+ 
+# Reordering stacked groups 
+age_pot_pass_plot$max_pot_category <- reorder(
+  age_pot_pass_plot$max_pot_category, 
+  age_pot_pass_plot$pass_pot_num_sum_1)
+age_pot_pass_plot$max_pot_category <- factor(
+  age_pot_pass_plot$max_pot_category, 
+  levels = levels(age_pot_pass_plot$max_pot_category))
+
+# Creating df for the line on top of the stacked bar chart
+line_df <- age_pot_pass_plot %>%
+  group_by(age) %>%
+  summarize(sum = sum(pass_pot_num_sum_1))
+
+# Small multiple
+ggplot(age_pot_pass_plot) +
+  geom_bar(aes(x = age, y = pass_pot_num_sum_1, fill = max_pot_category), position = "stack", stat = "identity") +
+  scale_fill_viridis(discrete = TRUE) +
+  labs(
+		title    = "At which age are players reaching their potential?",
+		subtitle = paste(sum(age_pot_pass_plot$pass_pot_num_sum_1), " players reached their FIFA potential (of age 19) in the following age distribution.", sep = ""),
+		x        = "Age",
+		y        = "",
+	  fill     = "Potential Brackets") +
+  theme_bw() +
+  geom_line(data  = line_df, aes(x = age, y = sum), size  = 1, alpha = 0.3, linetype = "dashed") +
+  geom_point(data = line_df, aes(x = age, y = sum), alpha = 0.5) +
+  geom_text(data  = line_df, aes(x = age, y = sum,  label = sum), alpha = 0.5, size = 4, hjust = 0.5, vjust = -0.5)
+
+```
+
+
+
+## 8.1 Insights: The Top 1: Do they always make it? 
+```{r}
+top1 <- table1 %>%
+  filter(sofifa_page == 1, pos_in_list == 1) %>%
+  rename(pot19 = max_potential) %>%
+  mutate(alpha = case_when(overall >= pot19 ~ overall))
+top1 <- top1 %>% 
+  mutate(beta  = case_when(overall <= pot19 ~ overall))
+top1 <- top1 %>%
+  mutate(alpha_1 <- case_when(pass_pot_num_1 == 1 ~ overall))
+top1 <- top1 %>%
+  rename(alpha_1 = "alpha_1 <- case_when(pass_pot_num_1 == 1 ~ overall)") %>%
+  mutate(name_age = paste(short_name, ", Age: ", age, "\nPotential: ", pot19, sep = "")) %>%
+  group_by(short_name) 
+
+data_ends <- top1 %>% 
+  group_by(short_name) %>%
+  drop_na(overall) %>% 
+  summarise_all(last) %>%
+  select(age, overall, name_age)
+
+# anim <-
+ggplot(top1) +
+  theme_bw() +
+  ## Point of Potential breakthough
+  geom_point(aes(x = age, y = alpha_1, color = short_name), size = 2.5) +
+  geom_label(aes(x = age, y = alpha_1, color = short_name, label = pot19), 
+            hjust = 0, nudge_x = -0.4, size = 5, check_overlap = TRUE) +
+  ## Lines of overall
+  geom_line(aes(x  = age, y = overall, color = short_name, linetype = "dotted")) +
+  ## Lines of overall after breaking their potnetial point, if they ever do
+  geom_line(aes(x  = age, y = alpha,   color = short_name, linetype = "solid")) +
+  geom_label_repel(data_ends, mapping = aes(x = age, y = overall, label = name_age, color = name_age), max.overlaps = 4) +
+  geom_abline(intercept = 90, slope = 0, size = 0.5, alpha = 0.3, color = "red", linetype = "dashed")+
+  labs(
+    title = "**The Top 1: Do they always make it?**",
+    x = "Age", y = "Overall", color = "", 
+    subtitle = paste("The players with the highest potential of every year: 200", 
+                    min(acc_preds$FifaIndex), " to 20", max(acc_preds$FifaIndex), 
+                    ".\n<span style='font-size:11pt'>
+                    Crossing the <span style='color:#F2ABAB;'>dashed line</span> means the player has reached world class performance. </span>", 
+                    sep = "")
+  ) +
+  guides(color = FALSE) +
+  scale_x_continuous(breaks = c(19, 21, 23, 25, 27, 29, 31, 33, 35), 
+                   expand = c(0, 0), limits = c(19, max(top1$age, na.rm = TRUE) + 1)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(70, max(top1$overall, na.rm = TRUE) + 1)) +
+  scale_linetype_identity(name = "", guide = 'legend', labels = c('Under potential\n\nAt and above potential')) +
+  #scale_color_viridis(discrete = TRUE) +
+  theme(
+    plot.title           = element_markdown(lineheight = 1.1),
+    plot.subtitle        = element_markdown(lineheight = 1.1),
+    legend.text          = element_markdown(size = 12),
+    legend.position      = c(0.04, 0.83),
+    legend.justification = c(0.1, 0.1),
+    legend.background    = element_rect(fill = "white", colour = "grey")) 
+  
+transition_reveal(age)
+  
+# Save at gif:
+animate(anim, duration = 6, fps = 20, width = 500, height = 700, renderer = gifski_renderer())
+```
+
+## 8.2 Insights: Potential < Overall? 
+```{r}
+lista <- acc_preds %>%
+  filter(difference < 0)
+```
+## 8.3 Insights: Top 10 highest jumps in Overall
+```{r}
+acc_preds %>%
+  mutate(real_change = prime - overall) %>%
+  filter(real_change > 0) %>%
+  top_n(25) %>%
+  select(SoFifaID, short_name, overall, prime, pot19, real_change) %>%
+  # Reorder data using average
+  rowwise() %>%
+  mutate(mean = mean(c(overall, prime) )) %>% 
+  arrange(desc(real_change)) %>%
+  mutate(x = factor(short_name, short_name)) %>%
+  ggplot() +
+  geom_segment(aes(x = reorder(short_name, real_change), y = overall, xend = short_name, yend = prime), color = "grey") +
+  geom_point(aes(x   = short_name, y = overall, color = "Overall at age 19"), size = 3) +
+  geom_point(aes(x   = short_name, y = prime,   color = "Prime"),  size = 3) +
+  geom_point(aes(x   = short_name, y = pot19,   color = "Potential"),  alpha = 0.75) +
+  coord_flip()+
+  theme_bw() +
+  theme(legend.position = "top") +
+  scale_color_viridis(discrete = TRUE) +
+  xlab("") +
+  ylab("Overall") +
+  ggtitle("Top 25: Players' Overall Progress") +
+  labs(color = "", fill = "f", y = "", subtitle = "These players had the highest positive change in their overall.") +
+    theme(
+      plot.title    = element_text(hjust = 0.5),
+      plot.subtitle = element_text(hjust = 0.5)
+    )
+```
+
+## 8.4 Insights: Top 10 steepest declines in Overall
+```{r}
+table1 %>%
+  group_by(SoFifaID) %>%
+  drop_na(overall) %>% 
+  summarise_all(last) %>%
+  select(SoFifaID, overall) %>%
+  rename(last_overall = overall) %>%
+  inner_join(table1, by = c("SoFifaID" = "SoFifaID")) %>%
+  mutate(drop = prime - last_overall) %>%
+  drop_na(overall) %>%
+  filter(age == 19) %>%
+  select(SoFifaID, short_name, overall, prime, max_potential, drop, bottom, nationality) %>%
+  # Reorder data using average
+  mutate(mean = as.integer(mean(c(prime, bottom)))) %>%
+  arrange(desc(drop)) %>%
+  rowwise() %>%
+  head(25) %>%
+  ggplot() +
+  geom_segment(aes(x = reorder(short_name, drop), y = prime, xend = short_name, yend = bottom), color = "grey") +
+  geom_point(aes(x   = short_name, y = prime,           color = "Prime"),  size = 3) +
+  geom_point(aes(x   = short_name, y = bottom,          color = "Last recorded overall*"),              size = 3) +
+  geom_point(aes(x   = short_name, y = max_potential,   color = "Potential"),         alpha = 0.75) +
+  coord_flip()+
+  theme_bw() +
+  theme(legend.position = "top") +
+  scale_color_viridis(discrete = TRUE) +
+  xlab("") +
+  ylab("Overall") +
+  ggtitle("Bottom 25: Players' Overall Progress") +
+  labs(color = "", fill = "f", y = "", subtitle = "These players had the highest negative change in their overall.",
+       caption = paste("Last recorded overall as of ", Sys.Date(), sep = "")) +
+  theme(
+    plot.title    = element_text(hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5)
+  )
+```
+
+## 9.1 What Is The Probability Of Making It? Heatmap brackets
+```{r}
+# Dummy data
+heat_df_brackets <- pass_pot_pass_plot %>%
+  mutate(probs = NA)
+
+heat_df_brackets[1, 4] = (pass_pot_pass_plot[1, 3] / (pass_pot_pass_plot[1, 3] + pass_pot_pass_plot[4, 3])) * 100
+heat_df_brackets[2, 4] = (pass_pot_pass_plot[2, 3] / (pass_pot_pass_plot[2, 3] + pass_pot_pass_plot[5, 3])) * 100
+heat_df_brackets[3, 4] = (pass_pot_pass_plot[3, 3] / (pass_pot_pass_plot[3, 3] + pass_pot_pass_plot[6, 3])) * 100
+heat_df_brackets[4, 4] = (pass_pot_pass_plot[4, 3] / (pass_pot_pass_plot[4, 3] + pass_pot_pass_plot[1, 3])) * 100
+heat_df_brackets[5, 4] = (pass_pot_pass_plot[5, 3] / (pass_pot_pass_plot[5, 3] + pass_pot_pass_plot[2, 3])) * 100
+heat_df_brackets[6, 4] = (pass_pot_pass_plot[6, 3] / (pass_pot_pass_plot[6, 3] + pass_pot_pass_plot[3, 3])) * 100
+
+# Heatmap heat_df_brackets
+ggplot((heat_df_brackets %>% filter(passed == "Passed")), aes(x = max_pot_category, y = passed, fill = probs)) + 
+  geom_tile() 
+```
+## 9.2 What Is The Probability Of Making It? Heatmap X-Y-Z
+```{r}
+scatter_df <- scatter_df %>%
+  mutate(pass_pot_num = case_when(
+    passed == FALSE ~ 0,
+    passed == TRUE  ~ 1
+  ))
+
+heat_df_axis <- cbind(
+  (acc_preds %>% 
+     select(overall, pot19, passed) %>% 
+     group_by(overall, pot19, passed) %>% 
+     count() %>% 
+     group_by(overall, pot19) %>% 
+     summarize(prob = (round((passed / n), 2)) * 100))$prob, 
+  (acc_preds %>% 
+     select(overall, pot19, passed) %>% 
+     group_by(overall, pot19, passed) %>% 
+     count() %>% 
+     group_by(overall, pot19))
+  ) %>%
+  rename(prob = ...1)
+heat_df_axis <- heat_df_axis[, c("overall", "pot19", "prob", "passed", "n")]
+
+# Heatmap 
+ggplot(heat_df_axis, aes(x = overall, y = pot19, fill = prob)) + 
+  geom_tile() + 
+  labs(
+    x = "Overall",
+    y = "FIFA Potential",
+    title = "Given your Fifa Potential and overall score, what is the probability of reaching it?",
+    fill = "Percentage %"
+  ) +
+  scale_fill_gradient(low = "lightgreen", high = "darkgreen") +
+  theme_ipsum()
+```
+## 9.3 What Is The Probability Of Making It? Pot19/Probs Barchart
+```{r}
+pot19 <- sort(unique(scatter_df$pot19))
+probs_bar_plot <- data.frame(pot = pot19, prob = NA)
+
+for (i in min(pot19):(max(pot19))){
+  probs_bar_plot[i - 63, 2] <- (scatter_df %>%
+    filter(pot19 == i) %>%
+    summarize(prob = round((sum(pass_pot_num) / n()) * 100), 2) )[1]
+}
+
+## Tidying
+probs_bar_plot <- probs_bar_plot[complete.cases(probs_bar_plot), ]
+
+ggplot(probs_bar_plot, aes(x = reorder(as.factor(pot), prob), y = prob)) + 
+  geom_bar(stat = "identity", aes(fill = prob)) +
+  #scale_x_discrete(limits = probs_bar_plot1$pot) +
+  labs(
+    x     = "FIFA Potential",
+    y     = "Percent %",
+    title = "Given you had your FIFA potential, what is the probability you actually reach it?",
+    fill  = "sdsds"
+  ) +
+  scale_fill_gradient2(low = 'white', high = 'darkgreen') +
+  geom_text(aes(label = prob, alpha = 0.9), size = 3.5, position = position_dodge(width = 0), hjust = -0.1, vjust = 0.5) +
+  coord_flip() +
+  theme_classic() +
+  theme(legend.position = "none") 
+```
+## 10. Wordcloud
+```{r}
+wc <- acc_preds %>%
+  select(short_name, prime) %>%
+  mutate(freq = ceiling(prime / 10))
+
+dev.new(width = 10000, height = 10000, unit = "px")
+wordcloud(
+  words        = wc$short_name, 
+  freq         = wc$prime, 
+  min.freq     = 1,
+  max.words    = 3000, 
+  random.order = FALSE,
+  #scale        = c(4,.5),
+  colors       = brewer.pal(8, "Dark2"),
+  #colors       = palette(),
+  vfont        = c("sans serif","plain")) 
+```
+
