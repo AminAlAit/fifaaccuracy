@@ -27,7 +27,7 @@ Every year, EA Sports assigns each young player two key numbers: their current *
 - **Cohort age:** Players observed at age exactly 19.
 - **Selection criteria:** The top 360 players ranked by potential in each release.
 - **Coverage:** 15 FIFA editions from FIFA 07 through FIFA 21 (released between 2006 and 2020).
-- **Scope:** 5,400 player-year sampling points resulting in 5,391 distinct players and 43,198 career rows tracked across their careers up to age 33.
+- **Scope:** 5,400 player-year sampling points resulting in 5,391 distinct players and 43,199 career rows tracked across their careers up to age 33.
 - **Data sources:** Scraped from SoFIFA with career and match statistics cross-referenced from Transfermarkt.
 
 ---
@@ -58,7 +58,7 @@ Every year, EA Sports assigns each young player two key numbers: their current *
 ```text
 fifaaccuracy/
 ├── data/
-│   ├── fifatable.csv          # Primary dataset (43,198 rows, FIFA 07 to FIFA 21)
+│   ├── fifatable.csv          # Primary dataset (43,199 rows, FIFA 07 to FIFA 21)
 │   ├── tm_stats.csv           # Transfermarkt match and appearance statistics
 │   └── tm_trophies.csv        # Transfermarkt club and individual honors
 ├── scripts/
