@@ -8,7 +8,7 @@
 
 An empirical data investigation into whether EA Sports FIFA's potential ratings accurately predict the real-world career peaks of teenage football prospects.
 
-This repository contains the full dataset, statistical analysis, visualization scripts, and documentation originally developed for the **Seminar in Sports Data Visualization** at **TU Dortmund University** (M.Sc. Data Science, Summer Semester 2021), where it was awarded the top grade of **1.0 (1/1)**.
+This repository contains the full dataset, statistical analysis, visualization scripts, and documentation originally developed for the **Seminar in Sports Data Visualization** at **TU Dortmund University** (Summer Semester 2021), where it was awarded the top grade of **1.0 (1/1)**.
 
 ---
 
@@ -158,7 +158,7 @@ If running directly in a local R environment:
 ## Citation & Author
 
 **Amin Al-Ait**  
-M.Sc. Data Science, TU Dortmund University  
-Email: [aminalait.de@gmail.com](mailto:aminalait.de@gmail.com)  
+Sports Data Visualization Seminar, TU Dortmund University (Grade: 1.0)  
+Email: [AminAlAit@outlook.com](mailto:AminAlAit@outlook.com)  
 Website: [aminalait.com](https://aminalait.com)  
 Report: [How Accurate Is FIFA At Predicting Future Stars? (PDF)](https://github.com/AminAlAit/fifaaccuracy/blob/main/How%20Accurate%20Is%20FIFA%20At%20Predicting%20Future%20Stars.pdf)

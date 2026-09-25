@@ -3,7 +3,7 @@
 # Analysis & Visualization Pipeline
 #
 # Author: Amin Al-Ait
-# Course: Seminar - Sports Data Visualization, TU Dortmund (M.Sc. Data Science)
+# Course: Sports Data Visualization Seminar, TU Dortmund University (Grade: 1.0)
 # Grade: 1.0 (1/1)
 # Published Article: https://kurt.digital/2022/05/11/footballs-future-stars-how-accurately-is-ea-fifa-predicting-them/
 # Full Report PDF: https://github.com/AminAlAit/fifaaccuracy/blob/main/How%20Accurate%20Is%20FIFA%20At%20Predicting%20Future%20Stars.pdf
