@@ -64,7 +64,8 @@ fifaaccuracy/
 ├── scripts/
 │   ├── manipulation-viz-script.R # Complete data cleaning, metrics, and ggplot2 figures
 │   ├── notebook.Rmd           # R Markdown research notebook
-│   └── scraping.R             # Historical scraping pipeline (SoFIFA & Transfermarkt)
+│   ├── scraping.R             # Historical scraping pipeline (SoFIFA & Transfermarkt)
+│   └── smoke_test.R           # Environment and data integrity verification script
 ├── docs/
 │   ├── Methods & Data.pdf     # Detailed methodology and data collection notes
 │   ├── Player Profiles.pdf    # Deep dive into individual player case studies
@@ -118,14 +119,20 @@ fifaaccuracy/
 ## Running with Docker
 
 To run the analysis without installing R or external dependencies locally:
+ 
+### Option 1: Run Environment Verification (Smoke Test)
 
-### Option 1: Run the Complete Analysis Script
+```bash
+docker compose run --rm analysis Rscript scripts/smoke_test.R
+```
+
+### Option 2: Run the Complete Analysis Script
 
 ```bash
 docker compose run --rm analysis
 ```
 
-### Option 2: Interactive RStudio Server
+### Option 3: Interactive RStudio Server
 
 Launch an interactive RStudio instance in your browser:
 
